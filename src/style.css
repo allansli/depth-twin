@@ -60,6 +60,36 @@ button {
 body.is-mirroring #mirror { opacity: 0.82; }
 body.is-sculpted #mirror { opacity: 0; }
 body.is-sculpted #stage { opacity: 1; }
+body.is-look #stage { opacity: 1; }
+body.is-look #intro { display: none !important; }
+body.is-split.is-sculpted #mirror,
+body.is-split.is-mirroring #mirror {
+  opacity: 1;
+  clip-path: inset(0 50% 0 0);
+}
+body.is-split #stage { clip-path: inset(0 0 0 50%); }
+body.is-split #scrim { clip-path: inset(0 0 0 50%); }
+
+#split-seam {
+  position: fixed;
+  z-index: 3;
+  top: 8%;
+  bottom: 12%;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-0.5px);
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(to bottom, transparent, rgba(244, 239, 230, 0.85), transparent);
+}
+body.is-split #split-seam { opacity: 1; }
+
+body.is-shot .top,
+body.is-shot #dock,
+body.is-shot #toast,
+body.is-shot #mobile-note,
+body.is-shot #scrim,
+body.is-shot #split-seam { display: none !important; }
 
 #scrim {
   position: fixed;
@@ -169,6 +199,33 @@ body.is-sculpted #stage { opacity: 1; }
   transition: background 160ms ease, color 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 
+.air button {
+  --dwell: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 92px;
+  min-height: 54px;
+  padding: 8px 16px;
+  border-radius: 18px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: rgba(244, 239, 230, 0.86);
+  background:
+    linear-gradient(90deg, rgba(217, 198, 255, 0.34) calc(var(--dwell) * 100%), transparent 0);
+}
+
+.air button .sub {
+  letter-spacing: 0.04em;
+  text-transform: none;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: #efe7ff;
+}
+
 .actions button {
   background: var(--paper);
   color: #16140f;
@@ -184,8 +241,10 @@ body.is-sculpted #stage { opacity: 1; }
   border-color: var(--iris);
 }
 
-.air button.is-focus {
-  background: rgba(217, 198, 255, 0.14);
+.air button.is-focus,
+.air button[aria-pressed="true"] {
+  background:
+    linear-gradient(90deg, rgba(217, 198, 255, 0.42) calc(var(--dwell) * 100%), rgba(244, 239, 230, 0.08) 0);
   transform: translateY(-1px);
 }
 
@@ -218,12 +277,21 @@ body.is-sculpted #stage { opacity: 1; }
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 999px;
-  background: var(--glass);
-  border: 1px solid var(--line);
-  backdrop-filter: blur(16px);
+  gap: 4px;
+  padding: 6px;
+  border-radius: 28px;
+  background: rgba(8, 8, 12, 0.58);
+  border: 1px solid rgba(244, 239, 230, 0.14);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(18px);
+}
+
+.rehearse {
+  pointer-events: auto;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
 #coach, #telemetry {
@@ -240,6 +308,7 @@ body.is-sculpted #stage { opacity: 1; }
 }
 
 #cursor {
+  --dwell: 0;
   position: fixed;
   left: 0;
   top: 0;
@@ -249,6 +318,14 @@ body.is-sculpted #stage { opacity: 1; }
   margin: -14px 0 0 -14px;
   pointer-events: none;
   mix-blend-mode: difference;
+}
+
+#cursor-dwell {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  background: conic-gradient(#fff calc(var(--dwell) * 1turn), transparent 0);
+  mask: radial-gradient(circle, transparent 62%, #000 64%);
 }
 
 #cursor-ring {
@@ -262,6 +339,9 @@ body.is-sculpted #stage { opacity: 1; }
 
 #cursor.is-pinch #cursor-ring { transform: scale(0.55); }
 #cursor.is-open #cursor-ring { transform: scale(1.18); }
+#cursor.is-point #cursor-ring { transform: scale(0.92); }
+#cursor.is-victory #cursor-ring { border-radius: 4px 14px; transform: scale(1.05); }
+#cursor.is-thumb #cursor-ring { transform: scale(1.12); }
 #cursor.is-fist #cursor-ring { border-radius: 5px; transform: scale(0.82); }
 
 #cursor-label {

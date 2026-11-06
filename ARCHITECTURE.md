@@ -23,18 +23,22 @@ getUserMedia (or a labeled synthetic canvas stream)
         │                         ▼
         │                    uint8 depth grid (160 cols)
         │                         │
-        └─────────────────────────┴──► particles or veil
+        └─────────────────────────┴──► particles, holo, metal, wire, or ember
                                       x is mirrored so the stage is a mirror
+                                      paint + presence modulate the material
 
-<video> ──detectForVideo──► MediaPipe Hand Landmarker (GPU delegate, main thread)
+<video> ──recognizeForVideo──► MediaPipe Gesture Recognizer (GPU, else CPU)
                          └─► Pose Landmarker Lite, about twice a second, optional
                                   │
                                   ▼
-                    classify landmarks → hold → gesture edge
+                    category + score → hold → gesture edge
+                    point on a control for ~0.4s → dwell click
                                   │
                     open / point → mirrored cursor
-                    pinch        → confirm the focused control
                     fist         → hold / release the twin
+                    victory      → next material
+                    thumb up     → branded still
+                    pinch        → only if the recognizer failed to load
 ```
 
 ## Why the split
@@ -43,7 +47,7 @@ Depth Anything V2 Small is the heavy model. It runs in a module worker so the re
 
 The shader keeps two depth textures and mixes them. The mix time follows the cadence, so a 15 fps depth clock still reads as continuous motion.
 
-MediaPipe’s GPU delegate needs a canvas and a WebGL context. In current Tasks Vision builds that path is reliable on the main thread and is usually a few milliseconds, which is the budget the UI can spend. Hands therefore stay beside the renderer. When a sample is only a few milliseconds, the next one is scheduled on the next frame or two. When it is slow, the next sample waits several times that long so the sculpture keeps drawing. If hands are already over budget, the optional pose pass is paused. The depth worker never shares that GL context. Pose is optional, lite, and throttled; if it fails the twin still runs.
+MediaPipe’s GPU delegate needs a canvas and a WebGL context. Gesture Recognizer replaces the hand landmarker: one model returns the canned gesture and the landmarks, so the page does not run both. If that model fails to construct, the hand landmarker is the fallback and a strict geometric pinch can still confirm. When a sample is only a few milliseconds, the next one is scheduled on the next frame or two. When it is slow, the next sample waits several times that long so the sculpture keeps drawing. If hands are already over budget, the optional pose pass is paused. The depth worker never shares that GL context. Pose is optional, lite, and throttled; if it fails the twin still runs. Head parallax has no dock toggle. It runs until that budget check pauses it.
 
 ## Cadence
 
@@ -65,7 +69,8 @@ Presence uses three agreeing samples so the clock does not flicker.
 | Depth Anything V2 Small fp16 | 49.6 MB | Hugging Face, first visit |
 | WebGPU q4f16 fallback | 19.1 MB | only if fp16 cannot load |
 | WASM q8 fallback | 27.3 MB | only if WebGPU cannot load |
-| Hand landmarker float16 | 7.8 MB | Google storage, then Cache API |
+| Gesture recognizer float16 | 8.4 MB | Google storage, then Cache API |
+| Hand landmarker float16 | 7.8 MB | fallback only, if the gesture model fails |
 | Pose landmarker lite float16 | 5.8 MB | same |
 | ORT asyncify wasm | 26 MB | this site |
 | MediaPipe vision wasm | 14 MB | this site |

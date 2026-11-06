@@ -32,12 +32,15 @@
       </p>
     </header>
 
+    <div id="split-seam" aria-hidden="true"></div>
+
     <section id="intro">
       <div class="card">
-        <p class="eyebrow">Air UI</p>
+        <p class="eyebrow">The mirror</p>
         <h2>A reflection with volume.</h2>
         <p class="lede">
-          Your webcam becomes a living sculpture. An open palm points, a pinch confirms, a fist holds the twin still.
+          Your webcam becomes a living sculpture. Point at a control and rest to choose it. A fist holds the twin.
+          Victory changes the material. Thumbs up keeps a still.
         </p>
         <div class="actions">
           <button id="begin" type="button">Open camera</button>
@@ -46,7 +49,7 @@
         <p id="intro-status" class="status">Warming the depth model…</p>
         <p id="intro-error" class="error" hidden></p>
         <p class="fine">
-          First visit downloads Depth Anything V2 Small (fp16, about 50&nbsp;MB) plus the hand model (about 8&nbsp;MB)
+          First visit downloads Depth Anything V2 Small (fp16, about 50&nbsp;MB) plus the gesture model (about 8&nbsp;MB)
           and a small pose model. They stay in this browser’s cache. Desktop Chrome or Edge with WebGPU is the
           intended stage. No account, no API key, no server for the video.
         </p>
@@ -54,6 +57,7 @@
     </section>
 
     <div id="cursor" hidden>
+      <span id="cursor-dwell"></span>
       <span id="cursor-ring"></span>
       <em id="cursor-label"></em>
     </div>
@@ -65,14 +69,26 @@
 
     <footer id="dock" hidden>
       <div class="air" id="air">
-        <button type="button" data-air="freeze" id="btn-freeze" aria-pressed="false">Hold twin</button>
-        <button type="button" data-air="mode" id="btn-mode" aria-pressed="false">Form · Particles</button>
-        <button type="button" data-air="parallax" id="btn-parallax" aria-pressed="true">Head · On</button>
-        <button type="button" data-air="save" id="btn-save">Save still</button>
-        <button type="button" data-air="rehearse" id="btn-rehearse" class="ghost">Rehearse</button>
+        <button type="button" data-air="material" id="btn-material" aria-label="Material, Particles" aria-keyshortcuts="M">
+          <span class="ctrl">Material</span>
+          <span class="sub" id="material-name">Particles</span>
+        </button>
+        <button type="button" data-air="paint" id="btn-paint" aria-pressed="false" aria-keyshortcuts="P">
+          <span class="ctrl">Paint</span>
+        </button>
+        <button type="button" data-air="split" id="btn-split" aria-pressed="false" aria-keyshortcuts="S">
+          <span class="ctrl">Split</span>
+        </button>
+        <button type="button" data-air="hold" id="btn-hold" aria-pressed="false" aria-keyshortcuts="H">
+          <span class="ctrl">Hold</span>
+        </button>
+        <button type="button" data-air="capture" id="btn-capture" aria-keyshortcuts="C">
+          <span class="ctrl">Capture</span>
+        </button>
       </div>
-      <p id="coach">Palm or point moves the cursor. Pinch confirms. Fist holds the twin. Keys: F, V, H, S.</p>
-      <p id="telemetry" aria-live="polite"></p>
+      <p id="coach">Point and rest to choose. Palm moves. Fist holds. Victory changes material. Thumb up captures. Keys M, P, S, H, C.</p>
+      <p id="telemetry" hidden aria-live="polite"></p>
+      <button type="button" data-air="rehearse" id="btn-rehearse" class="rehearse" hidden>Rehearse</button>
     </footer>
     <script type="module" src="/src/main.ts"></script>
   </body>
