@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#09090b" />
+    <title>Depth Twin — on-device volumetric mirror</title>
+    <meta
+      name="description"
+      content="A live volumetric reflection of you. Depth and gestures run entirely in the browser. Camera pixels never leave the device."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%2309090b' width='32' height='32'/%3E%3Cpath d='M16 4 28 16 16 28 4 16Z' fill='none' stroke='%23f4efe6' stroke-width='1.4'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <video id="mirror" playsinline muted autoplay></video>
+    <canvas id="stage" aria-label="Volumetric depth twin"></canvas>
+    <div id="scrim" aria-hidden="true"></div>
+    <canvas id="hand-gpu" class="gpu-sink" width="64" height="64" aria-hidden="true"></canvas>
+    <canvas id="pose-gpu" class="gpu-sink" width="64" height="64" aria-hidden="true"></canvas>
+
+    <header class="top">
+      <div class="brand">
+        <p class="eyebrow">On-device vision</p>
+        <h1>Depth Twin</h1>
+      </div>
+      <p class="privacy" id="privacy">
+        <strong>On-device.</strong> Camera pixels never leave this browser.
+        <span lang="pt">No dispositivo. Os píxeis da câmara nunca saem deste browser.</span>
+      </p>
+    </header>
+
+    <section id="intro">
+      <div class="card">
+        <p class="eyebrow">Air UI</p>
+        <h2>A reflection with volume.</h2>
+        <p class="lede">
+          Your webcam becomes a living sculpture. An open palm points, a pinch confirms, a fist holds the twin still.
+        </p>
+        <div class="actions">
+          <button id="begin" type="button">Open camera</button>
+          <button id="preview" type="button" class="ghost">Synthetic preview</button>
+        </div>
+        <p id="intro-status" class="status">Warming the depth model…</p>
+        <p id="intro-error" class="error" hidden></p>
+        <p class="fine">
+          First visit downloads Depth Anything V2 Small (fp16, about 50&nbsp;MB) plus the hand model (about 8&nbsp;MB)
+          and a small pose model. They stay in this browser’s cache. Desktop Chrome or Edge with WebGPU is the
+          intended stage. No account, no API key, no server for the video.
+        </p>
+      </div>
+    </section>
+
+    <div id="cursor" hidden>
+      <span id="cursor-ring"></span>
+      <em id="cursor-label"></em>
+    </div>
+    <div id="flash" aria-hidden="true"></div>
+    <p id="toast" role="status"></p>
+    <p id="mobile-note" hidden>
+      Desktop Chrome or Edge is recommended. A phone can open the page, but the volumetric mirror is built for a laptop GPU.
+    </p>
+
+    <footer id="dock" hidden>
+      <div class="air" id="air">
+        <button type="button" data-air="freeze" id="btn-freeze" aria-pressed="false">Hold twin</button>
+        <button type="button" data-air="mode" id="btn-mode" aria-pressed="false">Form · Particles</button>
+        <button type="button" data-air="parallax" id="btn-parallax" aria-pressed="true">Head · On</button>
+        <button type="button" data-air="save" id="btn-save">Save still</button>
+        <button type="button" data-air="rehearse" id="btn-rehearse" class="ghost">Rehearse</button>
+      </div>
+      <p id="coach">Palm or point moves the cursor. Pinch confirms. Fist holds the twin. Keys: F, V, H, S.</p>
+      <p id="telemetry" aria-live="polite"></p>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
