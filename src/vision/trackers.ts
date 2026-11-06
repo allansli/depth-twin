@@ -1,6 +1,6 @@
-import { FilesetResolver, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
+import { FilesetResolver, GestureRecognizer, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
 import { cachedBytes } from '../lib/cacheAsset';
-import { HAND_MODEL_URL, POSE_MODEL_URL } from '../lib/constants';
+import { GESTURE_MODEL_URL, HAND_MODEL_URL, POSE_MODEL_URL } from '../lib/constants';
 
 let filesetPromise: ReturnType<typeof FilesetResolver.forVisionTasks> | null = null;
 
@@ -12,6 +12,38 @@ function visionFileset(): ReturnType<typeof FilesetResolver.forVisionTasks> {
     filesetPromise = FilesetResolver.forVisionTasks(base);
   }
   return filesetPromise;
+}
+
+export interface GestureTracker {
+  recognizer: GestureRecognizer;
+  delegate: 'GPU' | 'CPU';
+}
+
+export async function createGestureTracker(canvas: HTMLCanvasElement): Promise<GestureTracker> {
+  const fileset = await visionFileset();
+  const bytes = await cachedBytes(GESTURE_MODEL_URL);
+  const shared = {
+    runningMode: 'VIDEO' as const,
+    numHands: 1,
+    minHandDetectionConfidence: 0.5,
+    minHandPresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5,
+    cannedGesturesClassifierOptions: { scoreThreshold: 0.5 },
+  };
+  try {
+    const recognizer = await GestureRecognizer.createFromOptions(fileset, {
+      ...shared,
+      baseOptions: { modelAssetBuffer: bytes.slice(), delegate: 'GPU' },
+      canvas,
+    });
+    return { recognizer, delegate: 'GPU' };
+  } catch {
+    const recognizer = await GestureRecognizer.createFromOptions(fileset, {
+      ...shared,
+      baseOptions: { modelAssetBuffer: bytes.slice(), delegate: 'CPU' },
+    });
+    return { recognizer, delegate: 'CPU' };
+  }
 }
 
 export interface HandTracker {

@@ -11,6 +11,7 @@ export interface TelemetryInput {
   pose: string;
   source: string;
   frozen: boolean;
+  material?: string;
 }
 
 export function formatTelemetry(input: TelemetryInput): string {
@@ -30,5 +31,8 @@ export function formatTelemetry(input: TelemetryInput): string {
     input.pose,
     input.source,
     input.frozen ? 'held' : 'live',
-  ].join('   ·   ');
+    input.material ?? '',
+  ]
+    .filter(Boolean)
+    .join('   ·   ');
 }

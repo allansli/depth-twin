@@ -34,3 +34,18 @@ export function stepPresence(state: PresenceState, sample: boolean): PresenceSta
 export function createPresence(): PresenceState {
   return { present: false, streak: 0 };
 }
+
+/** 0 when the frame is empty, 1 when the subject fills the near field. */
+export function presenceEnergy(depth: ArrayLike<number>): number {
+  if (depth.length === 0) return 0;
+  let sum = 0;
+  let count = 0;
+  const step = Math.max(1, Math.floor(depth.length / 3000));
+  for (let i = 0; i < depth.length; i += step) {
+    sum += depth[i];
+    count++;
+  }
+  if (count === 0) return 0;
+  const mean = sum / count / 255;
+  return Math.min(1, Math.max(0, (mean - 0.18) / 0.5));
+}

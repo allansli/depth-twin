@@ -1,16 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { cooldownAfterInfer, createPresence, isPersonPresent, stepPresence } from '../src/lib/cadence';
+import { cooldownAfterInfer, createPresence, isPersonPresent, presenceEnergy, stepPresence } from '../src/lib/cadence';
+import { captureFilename, flipRgba, STILL_H, STILL_W } from '../src/lib/capture';
 import { coverRect, mirrorToView, viewToVideoNorm } from '../src/lib/coverMap';
 import { frameSize, gridSize, normalizeDepth } from '../src/lib/depthMath';
+import { readFlags } from '../src/lib/flags';
 import {
   classifyHand,
+  createDwell,
   createGestureState,
   cursorLandmark,
+  DWELL_MS,
   handAtCursor,
   hitAirTarget,
+  mapGestureCategory,
+  resolveGesture,
+  stepDwell,
   stepGesture,
   synthesizeHand,
 } from '../src/lib/gestures';
+import { isMaterialId, MATERIALS, materialLabel, nextMaterial } from '../src/lib/materials';
+import { absorbMotion, decayField, stampDisc } from '../src/lib/paint';
+import { syntheticPersonDepth } from '../src/preview/depthField';
 import { formatTelemetry } from '../src/lib/telemetry';
 import { cueAt, REHEARSAL_MS } from '../src/vision/rehearsal';
 
@@ -58,12 +68,70 @@ describe('cadence', () => {
 });
 
 describe('gestures', () => {
-  it('classifies the four air poses', () => {
+  it('classifies the air poses, including victory and thumb up', () => {
     expect(classifyHand(synthesizeHand('open'))).toBe('open');
     expect(classifyHand(synthesizeHand('point'))).toBe('point');
     expect(classifyHand(synthesizeHand('pinch'))).toBe('pinch');
     expect(classifyHand(synthesizeHand('fist'))).toBe('fist');
+    expect(classifyHand(synthesizeHand('victory'))).toBe('victory');
+    expect(classifyHand(synthesizeHand('thumb_up'))).toBe('thumb_up');
     expect(classifyHand(null)).toBe('none');
+  });
+
+  it('does not treat a loose point as a pinch', () => {
+    const hand = synthesizeHand('point');
+    const tip = hand[8];
+    hand[4] = { x: tip.x + 0.06, y: tip.y, z: 0 };
+    expect(classifyHand(hand)).toBe('point');
+  });
+
+  it('maps MediaPipe gesture categories and ignores weak or unused ones', () => {
+    expect(mapGestureCategory('Open_Palm', 0.9)).toBe('open');
+    expect(mapGestureCategory('Pointing_Up', 0.8)).toBe('point');
+    expect(mapGestureCategory('Closed_Fist', 0.7)).toBe('fist');
+    expect(mapGestureCategory('Victory', 0.66)).toBe('victory');
+    expect(mapGestureCategory('Thumb_Up', 0.9)).toBe('thumb_up');
+    expect(mapGestureCategory('Thumb_Down', 0.99)).toBe('none');
+    expect(mapGestureCategory('ILoveYou', 0.99)).toBe('none');
+    expect(mapGestureCategory('None', 0.99)).toBe('none');
+    expect(mapGestureCategory('Closed_Fist', 0.2)).toBe('none');
+    expect(mapGestureCategory(undefined, 1)).toBe('none');
+  });
+
+  it('trusts the recognizer over a conflicting geometric pinch', () => {
+    const pinchLike = synthesizeHand('pinch');
+    expect(resolveGesture('fist', pinchLike, true)).toBe('fist');
+    expect(resolveGesture('none', pinchLike, true)).toBe('none');
+    expect(resolveGesture('none', pinchLike, false)).toBe('pinch');
+    expect(resolveGesture('victory', synthesizeHand('open'), true)).toBe('victory');
+    expect(resolveGesture('thumb_up', synthesizeHand('fist'), true)).toBe('thumb_up');
+  });
+
+  it('confirms a pointed control after a dwell, once', () => {
+    let state = stepDwell(createDwell(0), 'material', true, 0).state;
+    let step = stepDwell(state, 'material', true, DWELL_MS - 1);
+    expect(step.fire).toBeNull();
+    expect(step.progress).toBeGreaterThan(0.9);
+    step = stepDwell(step.state, 'material', true, DWELL_MS);
+    expect(step.fire).toBe('material');
+    step = stepDwell(step.state, 'material', true, DWELL_MS + 200);
+    expect(step.fire).toBeNull();
+    step = stepDwell(step.state, 'paint', true, DWELL_MS + 220);
+    expect(step.fire).toBeNull();
+    expect(step.progress).toBeLessThan(0.1);
+    step = stepDwell(step.state, 'paint', true, DWELL_MS + 220 + DWELL_MS);
+    expect(step.fire).toBe('paint');
+  });
+
+  it('keeps a dwell through a one-frame dropout', () => {
+    let state = stepDwell(createDwell(0), 'hold', true, 0).state;
+    state = stepDwell(state, 'hold', true, 200).state;
+    const dipped = stepDwell(state, null, false, 250);
+    expect(dipped.progress).toBeGreaterThan(0.4);
+    expect(dipped.state.target).toBe('hold');
+    const gone = stepDwell(dipped.state, null, false, 400);
+    expect(gone.state.target).toBeNull();
+    expect(gone.progress).toBe(0);
   });
 
   it('commits a gesture only after it holds, and emits one edge', () => {
@@ -115,6 +183,62 @@ describe('cover mapping', () => {
   });
 });
 
+describe('materials', () => {
+  it('cycles the wow set and does not keep veil', () => {
+    expect(MATERIALS).toEqual(['particles', 'holo', 'metal', 'wire', 'ember']);
+    expect(nextMaterial('particles')).toBe('holo');
+    expect(nextMaterial('ember')).toBe('particles');
+    expect(materialLabel('holo')).toBe('Holo');
+    expect(materialLabel('metal')).toBe('Metal');
+    expect(isMaterialId('wire')).toBe(true);
+    expect(isMaterialId('veil')).toBe(false);
+  });
+});
+
+describe('paint and presence', () => {
+  it('stamps a disc, decays it, and absorbs depth motion', () => {
+    const field = new Uint8Array(16);
+    stampDisc(field, 4, 4, 0.5, 0.5, 0.2, 200);
+    expect(field[2 * 4 + 2]).toBeGreaterThan(80);
+    const peak = field[2 * 4 + 2];
+    decayField(field, 0.5);
+    expect(field[2 * 4 + 2]).toBeLessThan(peak);
+    const paint = new Uint8Array(4);
+    absorbMotion(paint, new Uint8Array([0, 0, 0, 0]), new Uint8Array([0, 80, 0, 0]), 1);
+    expect(paint[1]).toBeGreaterThan(0);
+    expect(paint[0]).toBe(0);
+  });
+
+  it('raises energy when the depth field comes closer', () => {
+    expect(presenceEnergy(new Uint8Array(80).fill(10))).toBe(0);
+    expect(presenceEnergy(new Uint8Array(80).fill(230))).toBe(1);
+    expect(presenceEnergy(new Uint8Array(0))).toBe(0);
+  });
+
+  it('draws a brighter head than the empty corner', () => {
+    const depth = syntheticPersonDepth(160, 90, 0);
+    const head = depth[Math.floor(0.36 * 90) * 160 + 80];
+    expect(head).toBeGreaterThan(depth[0] + 40);
+  });
+});
+
+describe('capture and flags', () => {
+  it('names a branded still and flips GL rows', () => {
+    expect(STILL_W).toBe(1920);
+    expect(STILL_H).toBe(1080);
+    expect(captureFilename(new Date(2026, 10, 6, 3, 4, 5))).toBe('depth-twin-20261106-030405.png');
+    const src = new Uint8Array([1, 0, 0, 255, 0, 2, 0, 255]);
+    const flipped = flipRgba(src, 1, 2);
+    expect(Array.from(flipped)).toEqual([0, 2, 0, 255, 1, 0, 0, 255]);
+  });
+
+  it('reads launch flags', () => {
+    expect(readFlags('?dev=1&preview=1')).toMatchObject({ dev: true, preview: true, look: false });
+    expect(readFlags('?look=1&shot=1&material=holo').material).toBe('holo');
+    expect(readFlags('').dev).toBe(false);
+  });
+});
+
 describe('telemetry and rehearsal', () => {
   it('prints the live numbers it was given', () => {
     const line = formatTelemetry({
@@ -138,10 +262,15 @@ describe('telemetry and rehearsal', () => {
     expect(line).toContain('live');
   });
 
-  it('walks the rehearsal from palm to fist', () => {
+  it('walks the rehearsal from palm through dwell, victory, fist, and thumb up', () => {
     expect(cueAt(100)?.kind).toBe('open');
-    expect(cueAt(1000)?.kind).toBe('pinch');
-    expect(cueAt(2500)?.kind).toBe('fist');
+    expect(cueAt(100)?.aim).toBe('material');
+    expect(cueAt(800)?.kind).toBe('point');
+    expect(cueAt(1500)?.kind).toBe('victory');
+    expect(cueAt(2100)?.kind).toBe('fist');
+    expect(cueAt(2100)?.aim).toBe('hold');
+    expect(cueAt(3000)?.kind).toBe('thumb_up');
+    expect(cueAt(3000)?.aim).toBe('capture');
     expect(cueAt(REHEARSAL_MS + 10)).toBeNull();
   });
 });

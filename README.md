@@ -2,7 +2,9 @@
 
 A volumetric reflection of you, drawn entirely in the browser.
 
-The webcam (or a clearly labeled synthetic preview) is turned into a depth field by **Depth Anything V2 Small**, then into a particle sculpture or a soft veil in Three.js. **Air UI** reads one hand with MediaPipe and lets an open palm point, a pinch confirm, and a fist hold the twin still. A lite pose model can lean the sculpture with your head.
+The webcam (or a clearly labeled synthetic preview) is turned into a depth field by **Depth Anything V2 Small**, then into a material in Three.js: iridescent particles, a holo liquid, liquid metal, neon wire, or ember. **Air UI** reads one hand with MediaPipe’s Gesture Recognizer. An open palm moves the cursor, a point that rests on a control confirms it, a fist holds the twin, victory changes material, and a thumb up captures a still. A lite pose model leans the sculpture with your head when the GPU budget allows.
+
+How the mirror is meant to be played is in [UX.md](UX.md).
 
 **On-device. Camera pixels never leave this browser.**
 No dispositivo. Os píxeis da câmara nunca saem deste browser.
@@ -16,7 +18,7 @@ npm install
 npm run dev
 ```
 
-Open the printed localhost URL in **desktop Chrome or Edge**. Choose **Open camera**, or **Synthetic preview** if this machine has no webcam. `?preview=1` starts the synthetic mirror immediately.
+Open the printed localhost URL in **desktop Chrome or Edge**. Choose **Open camera**, or **Synthetic preview** if this machine has no webcam. `?preview=1` starts the synthetic mirror immediately. `?look=1` draws the materials on a built-in depth field without a camera or the depth model. `?dev=1` shows telemetry and Rehearse.
 
 ```bash
 npm test          # vitest, pure helpers only
@@ -24,7 +26,7 @@ npm run build     # typecheck + static build to dist/
 npm run preview   # serve dist/
 ```
 
-The first session downloads the depth weights (fp16, about **50 MB**) and the gesture models. After that they stay in the browser cache. The page also ships the ONNX Runtime and MediaPipe wasm that match this install (about 40 MB, cached as static assets). See [ARCHITECTURE.md](ARCHITECTURE.md) for the full table.
+The first session downloads the depth weights (fp16, about **50 MB**) and the gesture model (about **8 MB**). After that they stay in the browser cache. The page also ships the ONNX Runtime and MediaPipe wasm that match this install (about 40 MB, cached as static assets). See [ARCHITECTURE.md](ARCHITECTURE.md) for the full table.
 
 ## Browser
 
@@ -38,13 +40,19 @@ The first session downloads the depth weights (fp16, about **50 MB**) and the ge
 
 | Pose | What it does |
 | --- | --- |
-| Open palm or point | Moves the cursor. The control under it takes focus. |
-| Pinch | Confirms the focused control. |
+| Open palm | Moves the cursor. |
+| Point, rest ~0.4s | Confirms the dock control under the cursor. |
 | Fist | Holds the twin (stops depth inference) or releases it. |
+| Victory | Next material. |
+| Thumb up | Captures a branded 1920×1080 still. |
 
-Keys, if your hands are off camera: **F** hold, **V** form, **H** head parallax, **S** save a still, **G** rehearse. **Rehearse** plays a scripted hand through the same classifier and cursor, and the telemetry says so.
+Keys: **M** material, **P** paint, **S** split, **H** hold, **C** capture. **F** also holds. With `?dev=1`, **G** rehearses a scripted hand through the same path, and the telemetry line is shown. Telemetry is hidden otherwise.
 
-The telemetry line is measured, not decorative: render fps, depth fps and milliseconds, backend, model state, gesture, live vs idle cadence, hand time, and whether the source is the camera or the synthetic preview. If pose or hands are slow (software GL, no WebGPU adapter), the page lengthens the gap between samples and will pause head parallax so the sculpture keeps drawing.
+The dock is **Material**, **Paint**, **Split**, **Hold**, **Capture**. Head parallax is automatic. If pose or the gesture pass is slow, the page lengthens the gap between samples and pauses parallax so the sculpture keeps drawing.
+
+Paint leaves a trail from the hand and from motion in the depth field. Split shows the camera on the left and the twin on the right. Materials are Particles, Holo, Metal, Wire, and Ember. Coming closer to the lens raises presence, which brightens the material.
+
+Pinch is not the click. The old `pinchDist < 0.07` test classified ordinary points and loose fists as pinches. Gesture Recognizer replaces it. A landmark fallback remains if that model fails to load, and only a much tighter pinch can confirm in that fallback.
 
 ## Privacy
 
@@ -72,9 +80,9 @@ The depth model is not bundled. The first visitor of a fresh browser profile sti
 
 ```
 src/depth/depth.worker.ts   model load, WebGPU → WASM, one frame at a time
-src/twin/                     Three.js particles + veil, shader crossfade
-src/vision/                   MediaPipe hand + pose
-src/lib/                      gesture math, cadence, depth packing (unit-tested)
+src/twin/                     Three.js materials, trails, branded still
+src/vision/                   MediaPipe gesture recognizer + pose
+src/lib/                      gesture math, materials, paint, cadence (unit-tested)
 ```
 
 The pipeline diagram lives in [ARCHITECTURE.md](ARCHITECTURE.md).

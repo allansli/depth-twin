@@ -1,5 +1,5 @@
-export type GestureName = 'none' | 'point' | 'open' | 'pinch' | 'fist';
-export type HandKind = 'open' | 'fist' | 'point' | 'pinch';
+export type GestureName = 'none' | 'point' | 'open' | 'pinch' | 'fist' | 'victory' | 'thumb_up';
+export type HandKind = 'open' | 'fist' | 'point' | 'pinch' | 'victory' | 'thumb_up';
 
 export interface Landmark {
   x: number;
@@ -14,12 +14,28 @@ const FINGERS: Array<[number, number]> = [
   [20, 18],
 ];
 
+/** Tight pinch only. 0.07 caught ordinary points and loose fists. */
+export const PINCH_DIST = 0.045;
+export const GESTURE_SCORE_MIN = 0.5;
+export const DWELL_MS = 400;
+export const DWELL_GRACE_MS = 90;
+
 export const GESTURE_HOLD_MS: Record<GestureName, number> = {
   none: 120,
-  point: 70,
+  point: 50,
   open: 70,
-  pinch: 45,
+  pinch: 90,
   fist: 110,
+  victory: 100,
+  thumb_up: 120,
+};
+
+const RECOGNIZED: Record<string, GestureName> = {
+  Open_Palm: 'open',
+  Pointing_Up: 'point',
+  Closed_Fist: 'fist',
+  Victory: 'victory',
+  Thumb_Up: 'thumb_up',
 };
 
 export interface GestureState {
@@ -34,6 +50,19 @@ export interface GestureStep {
   edge: GestureName | null;
 }
 
+export interface DwellState {
+  target: string | null;
+  since: number;
+  fired: boolean;
+  lastHot: number;
+}
+
+export interface DwellStep {
+  state: DwellState;
+  fire: string | null;
+  progress: number;
+}
+
 export function landmarkDistance(a: Landmark, b: Landmark): number {
   const dz = (a.z ?? 0) - (b.z ?? 0);
   return Math.hypot(a.x - b.x, a.y - b.y, dz);
@@ -43,18 +72,59 @@ export function isFingerExtended(lm: Landmark[], tip: number, pip: number): bool
   return landmarkDistance(lm[tip], lm[0]) > landmarkDistance(lm[pip], lm[0]) * 1.15;
 }
 
+function thumbRaised(lm: Landmark[]): boolean {
+  const tip = lm[4];
+  const ip = lm[3];
+  const mcp = lm[2];
+  const wrist = lm[0];
+  const extended = landmarkDistance(tip, wrist) > landmarkDistance(mcp, wrist) * 1.15;
+  const raised = tip.y + 0.06 < wrist.y && tip.y < ip.y && tip.y < mcp.y;
+  return extended && raised;
+}
+
+/** Geometric fallback used when GestureRecognizer is down, and for the scripted rehearsal. */
 export function classifyHand(lm: Landmark[] | null | undefined): GestureName {
   if (!lm || lm.length < 21) return 'none';
   const extended = FINGERS.map(([tip, pip]) => isFingerExtended(lm, tip, pip));
   const [index, middle, ring, pinky] = extended;
   const extendedCount = extended.filter(Boolean).length;
-  const pinchDist = landmarkDistance(lm[4], lm[8]);
   const othersCurled = !middle && !ring && !pinky;
 
+  if (index && middle && !ring && !pinky) return 'victory';
+  if (extendedCount === 0 && thumbRaised(lm)) return 'thumb_up';
   if (extendedCount === 0) return 'fist';
-  if (pinchDist < 0.07 && othersCurled) return 'pinch';
+
+  const pinchDist = landmarkDistance(lm[4], lm[8]);
+  if (index && othersCurled && pinchDist < PINCH_DIST) return 'pinch';
   if (index && othersCurled) return 'point';
   if (extendedCount >= 3) return 'open';
+  return 'none';
+}
+
+/** Map a MediaPipe GestureRecognizer category. Unknown and low-score labels become none. */
+export function mapGestureCategory(
+  name: string | null | undefined,
+  score: number,
+  minScore = GESTURE_SCORE_MIN,
+): GestureName {
+  if (!name || !(score >= minScore)) return 'none';
+  return RECOGNIZED[name] ?? 'none';
+}
+
+/**
+ * Prefer the recognizer. While it is live but unsure, only palm and point fall back
+ * to geometry so a tight pinch cannot steal a fist. Without the recognizer, geometry
+ * is the whole path, including a strict secondary pinch.
+ */
+export function resolveGesture(
+  recognized: GestureName,
+  landmarks: Landmark[] | null | undefined,
+  recognizerLive: boolean,
+): GestureName {
+  if (recognizerLive && recognized !== 'none') return recognized;
+  const geometric = classifyHand(landmarks);
+  if (!recognizerLive) return geometric;
+  if (geometric === 'open' || geometric === 'point') return geometric;
   return 'none';
 }
 
@@ -75,8 +145,48 @@ export function stepGesture(state: GestureState, raw: GestureName, now: number):
   return { state: next, committed, edge };
 }
 
+export function createDwell(now = 0): DwellState {
+  return { target: null, since: now, fired: false, lastHot: Number.NEGATIVE_INFINITY };
+}
+
+/** Pointing at one control for ~0.4s confirms it. A brief dropout does not reset the clock. */
+export function stepDwell(
+  state: DwellState,
+  target: string | null,
+  pointing: boolean,
+  now: number,
+  dwellMs = DWELL_MS,
+): DwellStep {
+  const hot = pointing && target ? target : null;
+  const grace = !hot && state.target != null && now - state.lastHot <= DWELL_GRACE_MS;
+  const active = hot ?? (grace ? state.target : null);
+  if (!active) {
+    return {
+      state: { target: null, since: now, fired: false, lastHot: state.lastHot },
+      fire: null,
+      progress: 0,
+    };
+  }
+  const switched = state.target !== active;
+  const since = switched ? now : state.since;
+  const fired = switched ? false : state.fired;
+  const elapsed = now - since;
+  const progress = Math.min(1, elapsed / dwellMs);
+  const fire = !fired && elapsed >= dwellMs ? active : null;
+  return {
+    state: {
+      target: active,
+      since,
+      fired: fired || fire != null,
+      lastHot: hot ? now : state.lastHot,
+    },
+    fire,
+    progress: fire ? 1 : progress,
+  };
+}
+
 export function cursorLandmark(lm: Landmark[], gesture: GestureName): Landmark {
-  if (gesture === 'point' || gesture === 'pinch') return lm[8];
+  if (gesture === 'point' || gesture === 'pinch' || gesture === 'victory') return lm[8];
   const wrist = lm[0];
   const indexMcp = lm[5];
   const pinkyMcp = lm[17];
@@ -107,6 +217,8 @@ export function synthesizeHand(kind: HandKind, origin: { x: number; y: number } 
     fist: [false, false, false, false],
     point: [true, false, false, false],
     pinch: [true, false, false, false],
+    victory: [true, true, false, false],
+    thumb_up: [false, false, false, false],
   };
 
   for (let i = 0; i < 4; i++) {
@@ -123,15 +235,24 @@ export function synthesizeHand(kind: HandKind, origin: { x: number; y: number } 
     }
   }
 
-  pts[1] = point(origin.x - 0.08, origin.y + 0.12);
-  pts[2] = point(origin.x - 0.14, origin.y + 0.06);
   if (kind === 'pinch') {
+    pts[1] = point(origin.x - 0.08, origin.y + 0.12);
+    pts[2] = point(origin.x - 0.14, origin.y + 0.06);
     pts[3] = point(pts[8].x + 0.01, pts[8].y + 0.01);
     pts[4] = point(pts[8].x + 0.012, pts[8].y + 0.008);
   } else if (kind === 'fist') {
+    pts[1] = point(origin.x - 0.08, origin.y + 0.12);
+    pts[2] = point(origin.x - 0.14, origin.y + 0.06);
     pts[3] = point(origin.x - 0.04, wrist.y - 0.04);
     pts[4] = point(origin.x - 0.02, wrist.y - 0.03);
+  } else if (kind === 'thumb_up') {
+    pts[1] = point(origin.x - 0.05, origin.y + 0.08);
+    pts[2] = point(origin.x - 0.06, origin.y - 0.02);
+    pts[3] = point(origin.x - 0.05, origin.y - 0.12);
+    pts[4] = point(origin.x - 0.04, origin.y - 0.22);
   } else {
+    pts[1] = point(origin.x - 0.08, origin.y + 0.12);
+    pts[2] = point(origin.x - 0.14, origin.y + 0.06);
     pts[3] = point(origin.x - 0.2, origin.y + 0.02);
     pts[4] = point(origin.x - 0.24, origin.y - 0.02);
   }
@@ -143,12 +264,13 @@ const CURSOR_OFFSET: Record<HandKind, { x: number; y: number }> = {
   fist: cursorOf('fist'),
   point: cursorOf('point'),
   pinch: cursorOf('pinch'),
+  victory: cursorOf('victory'),
+  thumb_up: cursorOf('thumb_up'),
 };
 
 function cursorOf(kind: HandKind): { x: number; y: number } {
   const hand = synthesizeHand(kind, { x: 0, y: 0 });
-  const gesture: GestureName = kind;
-  const cursor = cursorLandmark(hand, gesture);
+  const cursor = cursorLandmark(hand, kind);
   return { x: cursor.x, y: cursor.y };
 }
 
